@@ -1,0 +1,9 @@
+{
+  "name": "typescript",
+  "displayName": "TypeScript",
+  "enabled": true,
+  "rules": {
+    "typescript/explicit-member-accessibility": "off",
+    "typescript/explicit-function-return-type": "off"
+  }
+}

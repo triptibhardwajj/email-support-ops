@@ -1,0 +1,473 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== WORKSPACE & ORGANIZATION ====================
+model Workspace {
+  id                  String   @id @default(cuid())
+  name                String
+  slug                String   @unique
+  logo                String?
+  timezone            String   @default("Asia/Kolkata")
+  industry            String?
+  
+  // Subscription
+  plan                Plan     @default(STARTER)
+  status              SubscriptionStatus @default(ACTIVE)
+  monthlyAgentLimit   Int      @default(5)
+  createdAt           DateTime @default(now())
+  renewalDate         DateTime?
+  
+  // Contact
+  ownerEmail          String
+  ownerName           String
+  phone               String?
+  
+  // Relations
+  members             Member[]
+  gmailAccounts       GmailAccount[]
+  tickets             Ticket[]
+  categories          Category[]
+  slaConfig           SLAConfig?
+  agents              Agent[]
+  teams               Team[]
+  automations         Automation[]
+  invoices            Invoice[]
+  auditLogs           AuditLog[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+enum Plan {
+  STARTER    // 5 agents, basic analytics
+  GROWTH     // 25 agents, advanced analytics
+  PROFESSIONAL // 50 agents, automation
+  ENTERPRISE // unlimited, dedicated support
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  TRIAL
+}
+
+// ==================== TEAM MANAGEMENT ====================
+model Member {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  email         String
+  name          String
+  avatar        String?
+  role          MemberRole @default(AGENT)
+  status        MemberStatus @default(ACTIVE)
+  
+  // Auth
+  password      String?
+  lastLogin     DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+  @@index([role])
+}
+
+enum MemberRole {
+  ADMIN        // Full access
+  MANAGER      // Team management + analytics
+  AGENT        // Can view/respond to tickets
+  VIEWER       // Read-only
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  INVITED
+}
+
+model Team {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name          String
+  description   String?
+  
+  agents        Agent[]
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+model Agent {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  teamId        String?
+  team          Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  
+  memberId      String?
+  member        Member?
+  
+  name          String
+  email         String
+  avatar        String?
+  
+  // Performance metrics
+  totalReplies  Int      @default(0)
+  avgResponseTime Int    @default(0) // in minutes
+  slaBreaches   Int      @default(0)
+  
+  status        AgentStatus @default(ACTIVE)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tickets       Ticket[] @relation("assignedAgent")
+  replies       TicketReply[]
+  activityLogs  ActivityLog[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+  @@index([teamId])
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+}
+
+// ==================== GMAIL INTEGRATION ====================
+model GmailAccount {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  email         String
+  displayName   String?
+  
+  // OAuth tokens
+  accessToken   String   @db.Text
+  refreshToken  String   @db.Text
+  tokenExpiry   DateTime?
+  
+  // Sync status
+  lastSyncAt    DateTime?
+  syncStatus    SyncStatus @default(PENDING)
+  
+  // Configuration
+  isSharedInbox Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tickets       Ticket[]
+  syncLogs      GmailSyncLog[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCING
+  COMPLETED
+  FAILED
+}
+
+model GmailSyncLog {
+  id              String   @id @default(cuid())
+  gmailAccountId  String
+  gmailAccount    GmailAccount @relation(fields: [gmailAccountId], references: [id], onDelete: Cascade)
+  
+  ticketsSynced   Int
+  startTime       DateTime
+  endTime         DateTime?
+  status          SyncStatus
+  error           String?
+  
+  @@index([gmailAccountId])
+}
+
+// ==================== TICKETS & CATEGORIES ====================
+model Category {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name          String
+  description   String?
+  color         String   @default("#3B82F6")
+  icon          String?
+  
+  tickets       Ticket[]
+  createdAt     DateTime @default(now())
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+model Ticket {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  gmailAccountId String
+  gmailAccount  GmailAccount @relation(fields: [gmailAccountId], references: [id])
+  
+  ticketNumber  String   // ETR-0001
+  gmailMessageId String   @unique
+  gmailThreadId String
+  
+  // Email details
+  from          String
+  to            String
+  subject       String
+  body          String   @db.Text
+  
+  // Categorization
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  
+  // Assignment
+  assignedToId  String?
+  assignedTo    Agent?   @relation("assignedAgent", fields: [assignedToId], references: [id])
+  
+  // Status & timing
+  status        TicketStatus @default(AWAITING_FIRST_REPLY)
+  priority      Priority @default(MEDIUM)
+  
+  receivedAt    DateTime
+  firstReplyAt  DateTime?
+  resolvedAt    DateTime?
+  
+  // SLA tracking
+  slaStatus     SLAStatus @default(ON_TRACK)
+  slaBreach     Boolean  @default(false)
+  
+  // Metrics
+  responseCount Int      @default(0)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  replies       TicketReply[]
+  tags          TicketTag[]
+  activityLogs  ActivityLog[]
+
+  @@unique([workspaceId, ticketNumber])
+  @@index([workspaceId])
+  @@index([gmailAccountId])
+  @@index([categoryId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([receivedAt])
+}
+
+enum TicketStatus {
+  AWAITING_FIRST_REPLY
+  AWAITING_CUSTOMER_RESPONSE
+  AWAITING_AGENT_RESPONSE
+  RESOLVED
+  CLOSED
+  ON_HOLD
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum SLAStatus {
+  ON_TRACK
+  AT_RISK
+  BREACHED
+}
+
+model TicketReply {
+  id            String   @id @default(cuid())
+  ticketId      String
+  ticket        Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  agentId       String?
+  agent         Agent?   @relation(fields: [agentId], references: [id])
+  
+  gmailMessageId String  @unique
+  
+  body          String   @db.Text
+  isFromAgent   Boolean
+  
+  sentAt        DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([agentId])
+}
+
+model TicketTag {
+  id            String   @id @default(cuid())
+  ticketId      String
+  ticket        Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  tag           String
+
+  @@index([ticketId])
+}
+
+// ==================== SLA CONFIGURATION ====================
+model SLAConfig {
+  id            String   @id @default(cuid())
+  workspaceId   String   @unique
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  // First response SLA (in minutes)
+  firstResponseTime Int  @default(60)
+  
+  // Resolution SLA (in hours)
+  resolutionTime Int     @default(24)
+  
+  // Business hours
+  businessHoursStart Int @default(9)   // 9 AM
+  businessHoursEnd   Int @default(18)  // 6 PM
+  businessDays       String @default("1,2,3,4,5") // 1=Monday, 5=Friday
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ==================== AUTOMATION ====================
+model Automation {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name          String
+  description   String?
+  
+  // Trigger
+  triggerType   AutomationTrigger
+  triggerValue  String? // e.g., category name, keyword
+  
+  // Actions
+  actions       AutomationAction[] @relation("automationActions")
+  
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+enum AutomationTrigger {
+  TICKET_CREATED
+  CATEGORY_MATCHED
+  KEYWORD_FOUND
+  AGENT_UNRESPONSIVE
+}
+
+model AutomationAction {
+  id            String   @id @default(cuid())
+  automationId  String
+  automation    Automation @relation("automationActions", fields: [automationId], references: [id], onDelete: Cascade)
+  
+  actionType    String
+  actionValue   String?
+}
+
+// ==================== BILLING & INVOICES ====================
+model Invoice {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  invoiceNumber String   @unique
+  
+  amount        Int      // in paisa (₹0.01)
+  currency      String   @default("INR")
+  
+  status        InvoiceStatus @default(DRAFT)
+  dueDate       DateTime
+  paidDate      DateTime?
+  
+  items         InvoiceItem[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([status])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model InvoiceItem {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  description   String
+  quantity      Int
+  unitPrice     Int      // in paisa
+  total         Int      // in paisa
+}
+
+// ==================== ANALYTICS & LOGS ====================
+model ActivityLog {
+  id            String   @id @default(cuid())
+  ticketId      String
+  ticket        Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  agentId       String?
+  agent         Agent?   @relation(fields: [agentId], references: [id])
+  
+  action        String   // "assigned", "status_changed", "reply_sent"
+  details       String?  @db.Text
+  
+  createdAt     DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([agentId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  action        String
+  resource      String   // "workspace", "member", "ticket"
+  resourceId    String
+  
+  changes       String?  @db.Text // JSON
+  ipAddress     String?
+  userAgent     String?
+  
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([createdAt])
+}

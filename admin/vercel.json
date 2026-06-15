@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "name": "ETRAV-Admin-Dashboard",
+  "env": {
+    "NEXT_PUBLIC_API_URL": {
+      "description": "Backend API URL",
+      "required": true,
+      "example": "https://api.etrav.com"
+    }
+  },
+  "buildCommand": "npm run build",
+  "startCommand": "npm start",
+  "installCommand": "npm install"
+}

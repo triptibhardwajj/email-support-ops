@@ -1,9 +1,7 @@
 {
-  "name": "typescript",
-  "displayName": "TypeScript",
-  "enabled": true,
+  "extends": "next/core-web-vitals",
   "rules": {
-    "typescript/explicit-member-accessibility": "off",
-    "typescript/explicit-function-return-type": "off"
+    "react/display-name": "off",
+    "@next/next/no-img-element": "off"
   }
 }

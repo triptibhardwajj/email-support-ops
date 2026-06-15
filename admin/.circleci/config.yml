@@ -1,0 +1,59 @@
+version: 2.1
+
+orbs:
+  node: circleci/node@5.0.3
+
+jobs:
+  test:
+    executor: node/default
+    steps:
+      - checkout
+      - node/install-packages:
+          cache-version: v1
+      - run:
+          name: Run linter
+          command: npm run lint
+      - run:
+          name: Run tests
+          command: npm run test
+
+  build:
+    executor: node/default
+    steps:
+      - checkout
+      - node/install-packages:
+          cache-version: v1
+      - run:
+          name: Build
+          command: npm run build
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .next
+            - node_modules
+
+  deploy-admin:
+    executor: node/default
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Deploy to Vercel
+          command: |
+            npm i -g vercel
+            vercel --prod --token $VERCEL_TOKEN
+
+workflows:
+  deploy:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: main
+      - deploy-admin:
+          requires:
+            - build
+          filters:
+            branches:
+              only: main
